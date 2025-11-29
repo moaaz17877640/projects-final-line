@@ -417,13 +417,13 @@ For issues or questions:
 
 ```bash
 # Load Balancer
-ssh root@165.232.112.136
+ssh root@165.232.x.x
 
 # Backend 1
-ssh root@138.68.90.46
+ssh root@138.68.x.x
 
 # Backend 2
-ssh root@206.189.61.18
+ssh root@206.189.x.x
 ```
 
 ### Useful Commands
