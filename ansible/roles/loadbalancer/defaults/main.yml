@@ -1,0 +1,14 @@
+---
+# Loadbalancer Role - Default Variables
+
+# Application port (must match backend_port)
+app_port: 8080
+
+# Backend port for health checks
+backend_port: 8080
+
+# Health check interval in minutes
+health_check_interval: 30
+
+# SSL settings
+enable_ssl: false

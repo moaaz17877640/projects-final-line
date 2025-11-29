@@ -1,0 +1,31 @@
+#!/bin/bash
+
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+LOG_FILE=/var/log/nginx/health-check.log
+
+# Ensure log directory exists
+mkdir -p $(dirname $LOG_FILE)
+
+echo "[$TIMESTAMP] Starting health checks" >> $LOG_FILE
+
+# Check backend servers using API endpoints (since actuator may not be available)
+BACKEND1="{{ hostvars['droplet2']['ansible_host'] }}:{{ backend_port }}"
+BACKEND2="{{ hostvars['droplet3']['ansible_host'] }}:{{ backend_port }}"
+
+for backend in $BACKEND1 $BACKEND2; do
+    # Use API endpoint since actuator is not available in the pre-built JAR
+    if curl -f -s --max-time 10 "http://$backend/api/employees" > /dev/null; then
+        echo "[$TIMESTAMP] Backend $backend: HEALTHY (API responding)" >> $LOG_FILE
+    else
+        echo "[$TIMESTAMP] Backend $backend: UNHEALTHY" >> $LOG_FILE
+        logger "Backend server $backend is unhealthy"
+    fi
+done
+
+# Check local services
+if systemctl is-active --quiet nginx; then
+    echo "[$TIMESTAMP] Nginx: RUNNING" >> $LOG_FILE
+else
+    echo "[$TIMESTAMP] Nginx: STOPPED" >> $LOG_FILE
+    logger "Nginx service is down"
+fi

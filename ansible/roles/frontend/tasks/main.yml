@@ -1,0 +1,37 @@
+---
+# Frontend Role - Deploy pre-built React files
+# The React build is done on Jenkins (fast), then files are copied to the server
+
+- name: Create web directory
+  file:
+    path: /var/www/html
+    state: directory
+    mode: '0755'
+    owner: www-data
+    group: www-data
+
+- name: Clean existing frontend files
+  shell: rm -rf /var/www/html/*
+
+- name: Copy pre-built React files from Jenkins
+  copy:
+    src: "{{ playbook_dir }}/../frontend/build/"
+    dest: /var/www/html/
+    owner: www-data
+    group: www-data
+    mode: '0644'
+    directory_mode: '0755'
+
+- name: Verify frontend files exist
+  stat:
+    path: /var/www/html/index.html
+  register: frontend_files
+
+- name: Debug frontend deployment status
+  debug:
+    msg: "Frontend files deployed: {{ frontend_files.stat.exists | default(false) }}"
+
+- name: Fail if frontend files not deployed
+  fail:
+    msg: "Frontend files were not deployed correctly!"
+  when: not frontend_files.stat.exists | default(false)

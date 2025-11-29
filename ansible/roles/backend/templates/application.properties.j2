@@ -1,0 +1,24 @@
+server.port={{ backend_port }}
+spring.datasource.url=jdbc:mysql://localhost:3306/{{ mysql_database }}?createDatabaseIfNotExist=true&useSSL=false&serverTimezone=UTC
+spring.datasource.username={{ mysql_user }}
+spring.datasource.password={{ mysql_password }}
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.database-platform=org.hibernate.dialect.MySQL8Dialect
+spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration
+
+# Logging configuration
+logging.level.root={{ log_level }}
+logging.level.com.madaarsolutions=DEBUG
+logging.file.name=/var/log/employee-management/application.log
+logging.file.max-size=10MB
+logging.file.max-history=30
+logging.pattern.file=%d{ISO8601} [%thread] %-5level %logger{36} - %msg%n
+logging.pattern.console=%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n
+
+# Tomcat access logs
+server.tomcat.accesslog.enabled=true
+server.tomcat.accesslog.directory=/var/log/employee-management
+server.tomcat.accesslog.file-date-format=.yyyy-MM-dd
+server.tomcat.accesslog.pattern=combined

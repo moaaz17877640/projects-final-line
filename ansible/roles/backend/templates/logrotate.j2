@@ -1,0 +1,12 @@
+/var/log/employee-management/*.log {
+    daily
+    missingok
+    rotate 30
+    compress
+    delaycompress
+    notifempty
+    create 644 root root
+    postrotate
+        systemctl reload employee-backend
+    endscript
+}

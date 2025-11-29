@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# Nginx Health Check Script for Employee Management App
+# This script checks the health of Nginx and backend services
+
+LOG_FILE="/var/log/nginx/health-check.log"
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+# Function to log messages
+log_message() {
+    echo "[$TIMESTAMP] $1" >> "$LOG_FILE"
+}
+
+# Check if Nginx is running
+if ! systemctl is-active --quiet nginx; then
+    log_message "ERROR: Nginx is not running"
+    systemctl start nginx
+    if [ $? -eq 0 ]; then
+        log_message "INFO: Nginx restarted successfully"
+    else
+        log_message "ERROR: Failed to restart Nginx"
+        exit 1
+    fi
+fi
+
+# Check Nginx configuration
+nginx -t > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+    log_message "ERROR: Nginx configuration test failed"
+    exit 1
+fi
+
+# Check if Nginx is responding on port 80
+curl -f -s http://localhost/nginx-health > /dev/null
+if [ $? -ne 0 ]; then
+    log_message "ERROR: Nginx not responding on port 80"
+else
+    log_message "INFO: Nginx responding on port 80"
+fi
+
+# Check if HTTPS is responding (if SSL is configured)
+if [ -f "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem" ]; then
+    curl -f -s -k https://localhost/nginx-health > /dev/null
+    if [ $? -ne 0 ]; then
+        log_message "ERROR: Nginx not responding on port 443"
+    else
+        log_message "INFO: Nginx responding on port 443"
+    fi
+fi
+
+# Check backend health
+{% for server in backend_servers %}
+BACKEND_URL="http://{{ server }}/actuator/health"
+curl -f -s --max-time 5 "$BACKEND_URL" > /dev/null
+if [ $? -ne 0 ]; then
+    log_message "WARNING: Backend {{ server }} not responding"
+else
+    log_message "INFO: Backend {{ server }} is healthy"
+fi
+{% endfor %}
+
+# Check disk space
+DISK_USAGE=$(df /var/log/nginx | tail -1 | awk '{print $5}' | sed 's/%//')
+if [ "$DISK_USAGE" -gt 90 ]; then
+    log_message "WARNING: Disk usage is at $DISK_USAGE%"
+fi
+
+# Clean old log entries (keep last 1000 lines)
+tail -n 1000 "$LOG_FILE" > "$LOG_FILE.tmp" && mv "$LOG_FILE.tmp" "$LOG_FILE"
+
+log_message "INFO: Health check completed"

@@ -1,0 +1,116 @@
+---
+# Simple role-based deployment playbook
+- name: Gather facts from all hosts
+  hosts: all
+  gather_facts: yes
+  become: yes
+
+- name: Test Employee Management App Deployment with Roles
+  hosts: all
+  become: yes
+  vars:
+    # Application settings
+    app_name: employee-management
+    backend_port: 8080
+    frontend_port: 3000
+    
+    # Database configuration  
+    mysql_root_password: "rootpass123"
+    mysql_database: "employee_management"
+    mysql_user: "empapp"
+    mysql_password: "emppass123"
+    
+    # GitHub repository settings
+    github_repo: "https://github.com/moaaz17877640/Employee-Management-Fullstack-App.git"
+    repo_branch: "master"
+    
+    # SSL/Security settings (disabled for IP-based access)
+    enable_ssl: false
+    
+    # Monitoring settings
+    health_check_interval: 30
+    log_level: "INFO"
+
+  tasks:
+    - name: Update package cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install common packages
+      apt:
+        name:
+          - curl
+          - wget
+          - unzip
+          - git
+          - rsync
+          - htop
+          - net-tools
+        state: present
+
+- name: Deploy Backend Services
+  hosts: backend
+  become: yes
+  vars:
+    # Application settings
+    app_name: employee-management
+    backend_port: 8080
+    frontend_port: 3000
+    
+    # Database configuration  
+    mysql_root_password: "rootpass123"
+    mysql_database: "employee_management"
+    mysql_user: "empapp"
+    mysql_password: "emppass123"
+    
+    # GitHub repository settings
+    github_repo: "https://github.com/moaaz17877640/Employee-Management-Fullstack-App.git"
+    repo_branch: "master"
+    
+    # SSL/Security settings (disabled for IP-based access)
+    enable_ssl: false
+    
+    # Monitoring settings
+    health_check_interval: 30
+    log_level: "INFO"
+  roles:
+    - backend
+
+- name: Deploy Frontend and Load Balancer
+  hosts: loadbalancer
+  become: yes
+  vars:
+    # Application settings
+    app_name: employee-management
+    backend_port: 8080
+    frontend_port: 3000
+    
+    # Database configuration  
+    mysql_root_password: "rootpass123"
+    mysql_database: "employee_management"
+    mysql_user: "empapp"
+    mysql_password: "emppass123"
+    
+    # GitHub repository settings
+    github_repo: "https://github.com/moaaz17877640/Employee-Management-Fullstack-App.git"
+    repo_branch: "master"
+    
+    # SSL/Security settings (disabled for IP-based access)
+    enable_ssl: false
+    
+    # Monitoring settings
+    health_check_interval: 30
+    log_level: "INFO"
+  
+  pre_tasks:
+    - name: Gather facts from backend servers
+      setup:
+      delegate_to: "{{ item }}"
+      delegate_facts: True
+      with_items:
+        - droplet2
+        - droplet3
+  roles:
+    - frontend
+    - loadbalancer

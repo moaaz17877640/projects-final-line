@@ -1,0 +1,45 @@
+#!/bin/bash
+# Enhanced monitoring script for Load Balancer
+
+TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+LOG_FILE=/var/log/enhanced-monitor.log
+
+# Ensure log directory exists
+mkdir -p $(dirname $LOG_FILE)
+
+echo "[$TIMESTAMP] Enhanced monitoring check started" >> $LOG_FILE
+
+# Check system resources
+DISK_USAGE=$(df / | tail -1 | awk '{print $5}' | sed 's/%//')
+MEMORY_USAGE=$(free | grep '^Mem:' | awk '{printf "%.1f", $3/$2 * 100.0}')
+LOAD_AVG=$(uptime | awk -F'load average:' '{print $2}' | awk '{print $1}' | tr -d ',')
+
+echo "[$TIMESTAMP] System Stats - Disk: ${DISK_USAGE}%, Memory: ${MEMORY_USAGE}%, Load: ${LOAD_AVG}" >> $LOG_FILE
+
+# Check Nginx service
+if systemctl is-active --quiet nginx; then
+    echo "[$TIMESTAMP] Nginx service: RUNNING" >> $LOG_FILE
+else
+    echo "[$TIMESTAMP] Nginx service: STOPPED" >> $LOG_FILE
+    logger "Nginx service is down on $(hostname)"
+fi
+
+# Check backend connectivity
+BACKEND_COUNT=0
+for backend in {{ hostvars['droplet2']['ansible_host'] }}:{{ backend_port }} {{ hostvars['droplet3']['ansible_host'] }}:{{ backend_port }}; do
+    if curl -f -s --max-time 5 "http://$backend/api/employees" > /dev/null 2>&1; then
+        BACKEND_COUNT=$((BACKEND_COUNT + 1))
+        echo "[$TIMESTAMP] Backend $backend: REACHABLE" >> $LOG_FILE
+    else
+        echo "[$TIMESTAMP] Backend $backend: UNREACHABLE" >> $LOG_FILE
+    fi
+done
+
+echo "[$TIMESTAMP] Available backends: $BACKEND_COUNT/2" >> $LOG_FILE
+
+# Alert if disk usage > 85%
+if [ $DISK_USAGE -gt 85 ]; then
+    logger "High disk usage: ${DISK_USAGE}% on $(hostname)"
+fi
+
+echo "[$TIMESTAMP] Enhanced monitoring check completed" >> $LOG_FILE

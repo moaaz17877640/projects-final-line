@@ -1,0 +1,14 @@
+[Unit]
+Description=Employee Management Backend
+After=mysql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/employee-management
+ExecStart=/usr/bin/java -jar employee-management-app.jar
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

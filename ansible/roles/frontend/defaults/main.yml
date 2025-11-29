@@ -1,0 +1,9 @@
+---
+# Frontend Role - Default Variables
+
+# GitHub repository
+github_repo: "https://github.com/moaaz17877640/Employee-Management-Fullstack-App.git"
+repo_branch: "master"
+
+# Node.js settings
+node_version: 18

@@ -1,0 +1,17 @@
+---
+# Backend Role - Default Variables
+
+# Application port
+app_port: 8080
+backend_port: 8080
+
+# Java settings
+java_home: /usr/lib/jvm/java-17-openjdk-amd64
+
+# Database configuration
+mysql_database: employee_management
+mysql_user: empapp
+mysql_password: emppass123
+
+# Logging
+log_level: INFO

@@ -1,0 +1,6 @@
+---
+# Frontend Role Handlers
+- name: reload nginx
+  systemd:
+    name: nginx
+    state: reloaded

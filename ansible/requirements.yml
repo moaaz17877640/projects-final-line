@@ -1,0 +1,11 @@
+---
+# Ansible Collections Requirements for Employee Management App
+collections:
+  - name: community.general
+    version: ">=8.0.0"
+  - name: ansible.posix
+    version: ">=1.5.0"
+  - name: community.mysql
+    version: ">=3.6.0"
+  - name: community.docker
+    version: ">=3.4.0"

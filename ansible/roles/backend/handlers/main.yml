@@ -1,0 +1,10 @@
+---
+# Backend Service Handlers
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart backend service
+  systemd:
+    name: employee-backend
+    state: restarted

@@ -1,0 +1,116 @@
+---
+# Post-deployment validation and health check playbook
+# Ensures the deployment is working correctly and creates monitoring
+
+- name: Post-Deployment Validation
+  hosts: all
+  gather_facts: yes
+  become: yes
+  
+  tasks:
+    - name: Wait for all services to be ready
+      wait_for:
+        port: "{{ backend_port if 'backend' in group_names else 80 }}"
+        host: "{{ ansible_default_ipv4.address }}"
+        delay: 10
+        timeout: 300
+        
+- name: Validate Backend Services
+  hosts: backend
+  become: yes
+  
+  tasks:
+    - name: Check backend service status
+      service:
+        name: employee-backend
+        state: started
+      register: backend_service
+      
+    - name: Verify backend API response
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}:{{ backend_port }}/api/employees"
+        method: GET
+        timeout: 30
+      register: api_response
+      
+    - name: Validate API data
+      assert:
+        that:
+          - api_response.status == 200
+          - api_response.json | length > 0
+        fail_msg: "Backend API not responding correctly"
+
+- name: Validate Load Balancer and Frontend
+  hosts: loadbalancer
+  become: yes
+  
+  tasks:
+    - name: Check nginx status
+      service:
+        name: nginx
+        state: started
+        
+    - name: Test frontend accessibility
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}/"
+        method: GET
+        timeout: 30
+      register: frontend_response
+      
+    - name: Test health endpoint
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}/health"
+        method: GET
+        timeout: 10
+      register: health_response
+      
+    - name: Test API through load balancer
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}/api/employees"
+        method: GET
+        timeout: 30
+      register: lb_api_response
+      
+    - name: Validate all endpoints
+      assert:
+        that:
+          - frontend_response.status == 200
+          - health_response.status == 200
+          - health_response.content == "healthy"
+          - lb_api_response.status == 200
+          - lb_api_response.json | length > 0
+        fail_msg: "Load balancer endpoints not working correctly"
+        
+    - name: Create monitoring script for continuous health checks
+      template:
+        src: monitoring.sh.j2
+        dest: /usr/local/bin/continuous-monitor.sh
+        mode: '0755'
+        
+    - name: Setup continuous monitoring cron job
+      cron:
+        name: "Continuous application monitoring"
+        minute: "*/5"
+        job: "/usr/local/bin/continuous-monitor.sh"
+        
+    - name: Display deployment success summary
+      debug:
+        msg: |
+          🎉 DEPLOYMENT VALIDATION SUCCESSFUL! 🎉
+          
+          ✅ Frontend: http://{{ ansible_default_ipv4.address }}/
+          ✅ API: http://{{ ansible_default_ipv4.address }}/api/employees ({{ lb_api_response.json | length }} employees)
+          ✅ Health: http://{{ ansible_default_ipv4.address }}/health
+          ✅ Backend Services: All {{ groups['backend'] | length }} instances running
+          ✅ Monitoring: Active with 5-minute health checks
+          
+          📊 Performance:
+          - Frontend Response: {{ frontend_response.elapsed }}s
+          - API Response: {{ lb_api_response.elapsed }}s  
+          - Health Check: {{ health_response.elapsed }}s
+          
+          🔒 Error Prevention Measures:
+          - Automatic service recovery
+          - Health monitoring every 5 minutes
+          - Backup server configuration
+          - Enhanced error logging

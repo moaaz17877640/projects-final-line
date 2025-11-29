@@ -1,0 +1,114 @@
+---
+# Load Balancer Role - Main Tasks
+- name: Install Nginx
+  apt:
+    name: nginx
+    state: present
+    update_cache: yes
+
+- name: Create Nginx configuration
+  template:
+    src: nginx-site.conf.j2
+    dest: /etc/nginx/sites-available/employee-app
+    mode: '0644'
+  notify: restart nginx
+
+- name: Enable employee-app site
+  file:
+    src: /etc/nginx/sites-available/employee-app
+    dest: /etc/nginx/sites-enabled/employee-app
+    state: link
+  notify: restart nginx
+
+- name: Remove default Nginx site
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: restart nginx
+
+- name: Create health check script
+  template:
+    src: health-check.sh.j2
+    dest: /usr/local/bin/health-check.sh
+    mode: '0755'
+
+- name: Setup health check cron job
+  cron:
+    name: "Health check monitoring"
+    minute: "*/{{ health_check_interval }}"
+    job: "/usr/local/bin/health-check.sh"
+
+- name: Create enhanced monitoring script
+  template:
+    src: enhanced-monitor.sh.j2
+    dest: /usr/local/bin/enhanced-monitor.sh
+    mode: '0755'
+
+- name: Setup enhanced monitoring cron job
+  cron:
+    name: "Enhanced health monitoring"
+    minute: "*/10"
+    job: "/usr/local/bin/enhanced-monitor.sh"
+    user: root
+
+- name: Create log rotation for health checks
+  template:
+    src: nginx-health-logrotate.j2
+    dest: /etc/logrotate.d/nginx-health
+    mode: '0644'
+
+- name: Start and enable Nginx
+  systemd:
+    name: nginx
+    enabled: yes
+    state: started
+
+- name: Wait for Nginx to be ready
+  wait_for:
+    port: 80
+    host: "{{ ansible_default_ipv4.address }}"
+    delay: 5
+    timeout: 30
+
+- name: Verify frontend deployment
+  uri:
+    url: "http://{{ ansible_host }}/"
+    method: GET
+    status_code: 200
+  register: frontend_check
+  retries: 3
+  delay: 10
+
+- name: Check if backends are reachable (non-blocking)
+  uri:
+    url: "http://{{ ansible_host }}/api/employees"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: api_check
+  retries: 2
+  delay: 5
+  ignore_errors: yes
+  
+- name: Log API verification result
+  debug:
+    msg: "API Verification: {{ 'SUCCESS - Backends are running' if api_check is defined and not api_check.failed else 'SKIPPED - Backend not deployed yet (run backend pipeline first)' }}"
+
+- name: Wait for nginx to stabilize
+  pause:
+    seconds: 5
+
+- name: Display deployment info
+  debug:
+    msg: |
+      🎉 LOAD BALANCER DEPLOYMENT COMPLETE! 🎉
+      =======================================
+      Website URL: http://{{ ansible_host }}
+      API Endpoints: http://{{ ansible_host }}/api/employees
+      Health Check: http://{{ ansible_host }}/health
+      SSL Status: {{ 'Enabled' if enable_ssl else 'Disabled (HTTP Only)' }}
+      Frontend Status: {{ 'SUCCESS' if frontend_check.status == 200 else 'FAILED' }}
+      API Status: {{ 'SUCCESS' if not api_check.failed else 'FAILED' }}
+      Backend Servers: Multiple backend servers on port {{ app_port }}
+      Health Monitoring: Every {{ health_check_interval }} minutes
+      =======================================

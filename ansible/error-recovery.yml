@@ -1,0 +1,97 @@
+---
+# Error Recovery and Resilience Playbook
+# This playbook handles common pipeline failures and provides recovery mechanisms
+
+- name: "Error Recovery and Pipeline Resilience"
+  hosts: all
+  become: yes
+  gather_facts: yes
+  vars:
+    max_retries: 3
+    retry_delay: 10
+    service_timeout: 120
+    
+  tasks:
+    - name: Check system health before recovery
+      debug:
+        msg: "Starting error recovery for {{ inventory_hostname }}"
+        
+    - name: Verify disk space availability
+      shell: df -h / | tail -1 | awk '{print $5}' | sed 's/%//'
+      register: disk_usage
+      ignore_errors: yes
+      
+    - name: Clean up disk space if needed
+      shell: |
+        # Clean package cache
+        apt-get clean || true
+        # Clean logs older than 7 days
+        find /var/log -type f -name "*.log" -mtime +7 -delete || true
+        # Clean temporary files
+        rm -rf /tmp/npm-* || true
+        rm -rf /var/tmp/* || true
+      when: disk_usage.stdout|int > 85
+      ignore_errors: yes
+      
+    - name: Check memory usage
+      shell: free -m | awk 'NR==2{printf "%.0f\n", $3*100/$2}'
+      register: memory_usage
+      ignore_errors: yes
+      
+    - name: Restart services if memory usage is high
+      systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop:
+        - nginx
+        - mysql
+      when: 
+        - memory_usage.stdout|int > 90
+        - item in ansible_facts.services
+      ignore_errors: yes
+      
+    - name: Verify network connectivity
+      uri:
+        url: "http://github.com"
+        method: GET
+        timeout: 10
+      register: network_check
+      ignore_errors: yes
+      
+    - name: Reset network if connectivity issues
+      shell: |
+        systemctl restart networking || true
+        systemctl restart systemd-resolved || true
+      when: network_check.failed
+      ignore_errors: yes
+      
+    - name: Check for zombie processes
+      shell: ps aux | awk '$8 ~ /^Z/ { print $2 }'
+      register: zombie_processes
+      ignore_errors: yes
+      
+    - name: Clean up zombie processes
+      shell: kill -9 {{ zombie_processes.stdout_lines | join(' ') }}
+      when: zombie_processes.stdout_lines | length > 0
+      ignore_errors: yes
+      
+    - name: Verify critical services are running
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - ssh
+        - systemd-resolved
+        - systemd-networkd
+      ignore_errors: yes
+      
+    - name: Log recovery completion
+      debug:
+        msg: |
+          Recovery Summary for {{ inventory_hostname }}:
+          - Disk Usage: {{ disk_usage.stdout }}%
+          - Memory Usage: {{ memory_usage.stdout }}%
+          - Network: {{ 'OK' if not network_check.failed else 'RECOVERED' }}
+          - Zombie Processes: {{ zombie_processes.stdout_lines | length }}
+          Recovery completed at {{ ansible_date_time.iso8601 }}
