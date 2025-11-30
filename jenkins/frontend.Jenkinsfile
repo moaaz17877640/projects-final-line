@@ -7,14 +7,13 @@
  * Tech Stack: React (Frontend)
  * DevOps Tools: Ansible, Jenkins, Nginx
  * 
- * Pipeline Stages (as per project requirements):
+ * Pipeline Stages:
  * 1. Checkout code
  * 2. Install dependencies
  * 3. Build React production bundle
  * 4. Deploy build files to Load Balancer server using Ansible
  * 
- * Required Jenkins Credentials:
- * - LOADBALANCER_SSH_PASSWORD: SSH password for droplet1 (Load Balancer)
+ * Note: Uses password authentication configured in ansible/inventory
  */
 
 pipeline {
@@ -40,8 +39,9 @@ pipeline {
     
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
-        timeout(time: 45, unit: 'MINUTES')
+        timeout(time: 60, unit: 'MINUTES')
         timestamps()
+        skipDefaultCheckout(true)
     }
     
     stages {
@@ -50,17 +50,28 @@ pipeline {
          */
         stage('Checkout Code') {
             steps {
-                echo "🔄 Checking out repository from ${env.GIT_REPO}"
+                echo "🔄 Downloading repository as ZIP (faster than git clone)"
                 deleteDir()
-                checkout([
-                    $class: 'GitSCM',
-                    branches: [[name: '*/master']],
-                    extensions: [
-                        [$class: 'CloneOption', timeout: 60, shallow: true, depth: 1],
-                        [$class: 'CheckoutOption', timeout: 60]
-                    ],
-                    userRemoteConfigs: [[url: env.GIT_REPO]]
-                ])
+                
+                // Download ZIP archive instead of git clone (faster on slow networks)
+                retry(3) {
+                    sh '''
+                        # Download repository as ZIP archive
+                        curl -L -o repo.zip https://github.com/moaaz17877640/Employee-Management-Fullstack-App/archive/refs/heads/master.zip \
+                            --retry 5 \
+                            --retry-delay 10 \
+                            --retry-max-time 600 \
+                            --connect-timeout 60 \
+                            --max-time 900
+                        
+                        # Extract and move files
+                        unzip -q repo.zip
+                        mv Employee-Management-Fullstack-App-master/* .
+                        mv Employee-Management-Fullstack-App-master/.* . 2>/dev/null || true
+                        rmdir Employee-Management-Fullstack-App-master
+                        rm repo.zip
+                    '''
+                }
                 sh 'ls -la'
             }
         }
@@ -143,18 +154,14 @@ GENERATE_SOURCEMAP=false
             steps {
                 echo "🚀 Deploying React build to Load Balancer server (Droplet 1)"
                 
-                // Verify sshpass is installed (should be pre-installed on Jenkins server)
-                sh "which sshpass && echo '✅ sshpass is available'"
-                
-                // Use Jenkins credentials for SSH password
-                withCredentials([string(credentialsId: 'LOADBALANCER_SSH_PASSWORD', variable: 'LB_PASSWORD')]) {
+                withCredentials([string(credentialsId: 'droplet1-password', variable: 'DROPLET1_PASSWORD')]) {
                     script {
                         // Pre-deployment: Verify server connectivity
                         echo "🔍 Verifying server connectivity..."
                         sh '''
                             cd ansible
                             ansible loadbalancer -i inventory -m ping --timeout=30 \
-                                --extra-vars "ansible_password=${LB_PASSWORD}"
+                                --extra-vars "ansible_password=${DROPLET1_PASSWORD}"
                         '''
                         
                         // Deploy frontend using Ansible playbook
@@ -163,9 +170,9 @@ GENERATE_SOURCEMAP=false
                             cd ansible
                             ansible-playbook -i inventory roles-playbook.yml \
                                 --limit loadbalancer \
-                                --extra-vars "ansible_password=\${LB_PASSWORD}" \
                                 --extra-vars "app_version=${env.APP_VERSION}" \
                                 --extra-vars "build_number=${env.BUILD_NUMBER}" \
+                                --extra-vars "ansible_password=${DROPLET1_PASSWORD}" \
                                 -v
                         """
                         
@@ -178,7 +185,7 @@ GENERATE_SOURCEMAP=false
                             cd ansible
                             ansible loadbalancer -i inventory -m shell \
                                 -a "curl -sf http://localhost/ | head -20" \
-                                --extra-vars "ansible_password=${LB_PASSWORD}" \
+                                --extra-vars "ansible_password=${DROPLET1_PASSWORD}" \
                                 --timeout=60
                         '''
                         
@@ -188,7 +195,7 @@ GENERATE_SOURCEMAP=false
                             cd ansible
                             ansible loadbalancer -i inventory -m shell \
                                 -a "curl -sf --max-time 5 http://localhost/api/employees || echo 'API not available yet - run backend pipeline first'" \
-                                --extra-vars "ansible_password=${LB_PASSWORD}" \
+                                --extra-vars "ansible_password=${DROPLET1_PASSWORD}" \
                                 --timeout=30
                         '''
                     }
@@ -203,24 +210,24 @@ GENERATE_SOURCEMAP=false
             steps {
                 echo "🏥 Running final validation checks"
                 
-                withCredentials([string(credentialsId: 'LOADBALANCER_SSH_PASSWORD', variable: 'LB_PASSWORD')]) {
+                withCredentials([string(credentialsId: 'droplet1-password', variable: 'DROPLET1_PASSWORD')]) {
                     sh '''
                         cd ansible
                         
                         echo "=== Nginx Status ==="
                         ansible loadbalancer -i inventory -m shell \
                             -a "nginx -t && systemctl is-active nginx" \
-                            --extra-vars "ansible_password=${LB_PASSWORD}"
+                            --extra-vars "ansible_password=${DROPLET1_PASSWORD}"
                         
                         echo "=== Frontend Served ==="
                         ansible loadbalancer -i inventory -m shell \
                             -a "curl -sf -o /dev/null -w '%{http_code}' http://localhost/" \
-                            --extra-vars "ansible_password=${LB_PASSWORD}"
+                            --extra-vars "ansible_password=${DROPLET1_PASSWORD}"
                         
                         echo "=== API Routing (optional) ==="
                         ansible loadbalancer -i inventory -m shell \
                             -a "curl -sf --max-time 5 -o /dev/null -w '%{http_code}' http://localhost/api/employees || echo 'Backend not deployed yet'" \
-                            --extra-vars "ansible_password=${LB_PASSWORD}"
+                            --extra-vars "ansible_password=${DROPLET1_PASSWORD}"
                     '''
                 }
                 echo "✅ All validation checks passed"
@@ -232,7 +239,16 @@ GENERATE_SOURCEMAP=false
         success {
             echo """
             ✅ Frontend CI/CD Pipeline Completed Successfully!
-         
+            
+            📋 Deployment Summary:
+            ─────────────────────────────────────
+            Version: ${env.APP_VERSION}
+            Build Archive: frontend-build-${env.BUILD_NUMBER}.tar.gz
+            Load Balancer (Droplet 1): ✅
+            Frontend Served: ✅
+            API Routing: ✅
+            ─────────────────────────────────────
+            """
         }
         
         failure {

@@ -50,7 +50,7 @@
         state: present
 
 - name: Deploy Backend Services
-  hosts: backend
+  hosts: backends
   become: yes
   vars:
     # Application settings
@@ -68,8 +68,10 @@
     github_repo: "https://github.com/moaaz17877640/Employee-Management-Fullstack-App.git"
     repo_branch: "master"
     
-    # SSL/Security settings (disabled for IP-based access)
-    enable_ssl: false
+    # SSL/Security settings
+    enable_ssl: true
+    domain_name: "employeemanagement.systems"
+    ssl_email: "mstfyrb477@gmail.com"
     
     # Monitoring settings
     health_check_interval: 30
@@ -96,8 +98,10 @@
     github_repo: "https://github.com/moaaz17877640/Employee-Management-Fullstack-App.git"
     repo_branch: "master"
     
-    # SSL/Security settings (disabled for IP-based access)
-    enable_ssl: false
+    # SSL/Security settings
+    enable_ssl: true
+    domain_name: "employeemanagement.systems"
+    ssl_email: "mstfyrb477@gmail.com"
     
     # Monitoring settings
     health_check_interval: 30

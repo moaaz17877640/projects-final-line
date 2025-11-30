@@ -1,13 +1,36 @@
 upstream backend_servers {
+    ip_hash;  # Sticky sessions - same client always goes to same backend
     # Backend servers using public IPs (cross-cloud/region deployment)
     server {{ hostvars['droplet2']['ansible_host'] }}:{{ app_port }} max_fails=3 fail_timeout=30s;
     server {{ hostvars['droplet3']['ansible_host'] }}:{{ app_port }} max_fails=3 fail_timeout=30s;
+    keepalive 32;  # Connection pooling for better performance
 }
 
 # HTTP server - serve the application directly on port 80
 server {
     listen 80;
-    server_name {{ ansible_host }} _;
+    server_name {{ domain_name | default(ansible_host) }} {{ ansible_host }} _;
+    
+    {% if enable_ssl %}
+    # Allow Certbot ACME challenge
+    location ^~ /.well-known/acme-challenge/ {
+        allow all;
+        root /var/www/html;
+        default_type "text/plain";
+        try_files $uri =404;
+    }
+
+    # Redirect all traffic to HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+    {% else %}
+    # Gzip compression for faster loading
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1000;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
     
     # Health check endpoint
     location /health {
@@ -16,8 +39,51 @@ server {
         add_header Content-Type text/plain;
     }
     
+    # Auth endpoints (not under /api)
+    location /register {
+        proxy_pass http://backend_servers/register;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /authenticate {
+        proxy_pass http://backend_servers/authenticate;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /verify-username {
+        proxy_pass http://backend_servers/verify-username;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /reset-password {
+        proxy_pass http://backend_servers/reset-password;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
     location /api/ {
         proxy_pass http://backend_servers;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -26,6 +92,8 @@ server {
         proxy_read_timeout 30s;
         proxy_send_timeout 30s;
         proxy_next_upstream error timeout http_502 http_503 http_504;
+        gzip on;
+        gzip_types application/json;
     }
     
     location / {
@@ -41,29 +109,94 @@ server {
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
             expires 1y;
             add_header Cache-Control "public, immutable";
+            access_log off;
         }
     }
+    {% endif %}
 }
 
 {% if enable_ssl %}
-# SSL configuration (commented out - no domain available)
+# HTTPS server with Let's Encrypt SSL
 server {
     listen 443 ssl http2;
-    server_name {{ ansible_host }};
+    server_name {{ domain_name }} {{ ansible_host }};
     
-    # SSL configuration would go here
-    # ssl_certificate /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
-    # ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
+    # Let's Encrypt SSL certificates
+    ssl_certificate /etc/letsencrypt/live/{{ domain_name }}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{{ domain_name }}/privkey.pem;
     
-    # Same location blocks as HTTP
+    # SSL security settings
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 10m;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    
+    # Security headers
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options DENY;
+    add_header X-Content-Type-Options nosniff;
+    add_header X-XSS-Protection "1; mode=block";
+    
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1000;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+    
+    # Health check endpoint
     location /health {
         access_log off;
         return 200 "healthy\n";
         add_header Content-Type text/plain;
     }
     
+    # Auth endpoints
+    location /register {
+        proxy_pass http://backend_servers/register;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /authenticate {
+        proxy_pass http://backend_servers/authenticate;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /verify-username {
+        proxy_pass http://backend_servers/verify-username;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
+    location /reset-password {
+        proxy_pass http://backend_servers/reset-password;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+    
     location /api/ {
         proxy_pass http://backend_servers;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -72,11 +205,20 @@ server {
         proxy_read_timeout 30s;
         proxy_send_timeout 30s;
         proxy_next_upstream error timeout http_502 http_503 http_504;
+        gzip on;
+        gzip_types application/json;
     }
     
     location / {
         root /var/www/html;
         try_files $uri $uri/ /index.html;
+        
+        # Cache static assets
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            access_log off;
+        }
     }
 }
 {% endif %}

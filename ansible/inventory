@@ -1,12 +1,12 @@
 # Ansible Inventory for Employee Management App - Madaar Solutions
-# DigitalOcean Droplet Configuration
-# NOTE: Passwords are injected via Jenkins credentials - DO NOT hardcode secrets here
+# AWS EC2 / DigitalOcean Droplet Configuration
+# Using Password Authentication (injected via Jenkins)
 
 [loadbalancer]
 # Droplet 1 - Load Balancer + Frontend
 droplet1 ansible_host=165.232.112.136 ansible_user=root
 
-[backend]
+[backends]
 # Droplet 2 - Backend Instance #1
 droplet2 ansible_host=138.68.90.46 ansible_user=root
 # Droplet 3 - Backend Instance #2  
@@ -15,8 +15,8 @@ droplet3 ansible_host=206.189.61.18 ansible_user=root
 [all:vars]
 # Global variables
 ansible_python_interpreter=/usr/bin/python3
-ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ConnectionAttempts=3'
-ansible_timeout=60
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o ConnectTimeout=90 -o ConnectionAttempts=3'
+ansible_timeout=100
 # Password authentication settings
 ansible_connection=ssh
 # Error prevention settings
@@ -41,11 +41,11 @@ mysql_database=employee_management
 mysql_user=empapp
 mysql_password=emppass123
 
-# SSL/Domain configuration (Commented out - no domain available)
-# domain_name=emp-mgmt.yourdomain.com
-# ssl_email=admin@yourdomain.com  
-# ssl_type=letsencrypt
-enable_ssl=false
+# SSL/Domain configuration
+domain_name=employeemanagement.systems
+ssl_email=mstfyrb477@gmail.com
+ssl_type=letsencrypt
+enable_ssl=true
 health_check_interval=30
 
 
@@ -64,7 +64,7 @@ nginx_worker_connections=1024
 ssl_certificate_path=/etc/letsencrypt/live
 react_build_path=/var/www/html/employee-management
 
-[backend:vars]
+[backends:vars]
 # Backend specific variables
 java_home=/usr/lib/jvm/java-17-openjdk-amd64
 app_jar_path=/opt/employee-management

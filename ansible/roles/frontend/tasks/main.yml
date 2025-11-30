@@ -13,14 +13,33 @@
 - name: Clean existing frontend files
   shell: rm -rf /var/www/html/*
 
-- name: Copy pre-built React files from Jenkins
+- name: Archive frontend build locally
+  shell: cd "{{ playbook_dir }}/../frontend/build" && zip -r "{{ playbook_dir }}/../frontend/frontend_build.zip" .
+  delegate_to: localhost
+  run_once: true
+
+- name: Copy frontend archive to server
   copy:
-    src: "{{ playbook_dir }}/../frontend/build/"
+    src: "{{ playbook_dir }}/../frontend/frontend_build.zip"
+    dest: /tmp/frontend_build.zip
+    mode: '0644'
+
+- name: Extract frontend archive
+  unarchive:
+    src: /tmp/frontend_build.zip
     dest: /var/www/html/
+    remote_src: yes
     owner: www-data
     group: www-data
-    mode: '0644'
-    directory_mode: '0755'
+    mode: '0755'
+
+- name: Cleanup local archive
+  file:
+    path: "{{ playbook_dir }}/../frontend/frontend_build.zip"
+    state: absent
+  delegate_to: localhost
+  run_once: true
+
 
 - name: Verify frontend files exist
   stat:

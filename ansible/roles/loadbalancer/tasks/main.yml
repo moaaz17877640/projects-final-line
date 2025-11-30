@@ -6,6 +6,76 @@
     state: present
     update_cache: yes
 
+# SSL/Let's Encrypt Setup
+- name: Install Certbot and Nginx plugin
+  apt:
+    name:
+      - certbot
+      - python3-certbot-nginx
+    state: present
+  when: enable_ssl | default(false)
+
+- name: Check if SSL certificate exists
+  stat:
+    path: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
+  register: ssl_cert_exists
+  when: enable_ssl | default(false)
+
+- name: Create initial Nginx configuration (HTTP only for Certbot)
+  template:
+    src: nginx-site.conf.j2
+    dest: /etc/nginx/sites-available/employee-app
+    mode: '0644'
+  vars:
+    enable_ssl: false
+  when: enable_ssl | default(false) and not ssl_cert_exists.stat.exists | default(false)
+
+- name: Enable employee-app site (initial)
+  file:
+    src: /etc/nginx/sites-available/employee-app
+    dest: /etc/nginx/sites-enabled/employee-app
+    state: link
+  when: enable_ssl | default(false) and not ssl_cert_exists.stat.exists | default(false)
+
+- name: Remove default Nginx site (before certbot)
+  file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+
+- name: Reload Nginx for Certbot
+  systemd:
+    name: nginx
+    state: reloaded
+  when: enable_ssl | default(false) and not ssl_cert_exists.stat.exists | default(false)
+
+- name: Obtain Let's Encrypt SSL certificate
+  command: >
+    certbot certonly --nginx
+    -d {{ domain_name }}
+    --email {{ ssl_email }}
+    --agree-tos
+    --non-interactive
+    --redirect
+  args:
+    creates: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
+  when: enable_ssl | default(false) and not ssl_cert_exists.stat.exists | default(false)
+  register: certbot_result
+  ignore_errors: yes
+
+- name: Display Certbot result
+  debug:
+    msg: "{{ certbot_result.stdout_lines | default(['Certbot completed']) }}"
+  when: enable_ssl | default(false) and certbot_result is defined
+
+- name: Setup automatic certificate renewal
+  cron:
+    name: "Certbot auto-renewal"
+    minute: "0"
+    hour: "3"
+    job: "certbot renew --quiet --post-hook 'systemctl reload nginx'"
+  when: enable_ssl | default(false)
+
+# Final Nginx Configuration
 - name: Create Nginx configuration
   template:
     src: nginx-site.conf.j2
@@ -98,17 +168,19 @@
   pause:
     seconds: 5
 
+
 - name: Display deployment info
   debug:
     msg: |
       🎉 LOAD BALANCER DEPLOYMENT COMPLETE! 🎉
       =======================================
-      Website URL: http://{{ ansible_host }}
-      API Endpoints: http://{{ ansible_host }}/api/employees
-      Health Check: http://{{ ansible_host }}/health
-      SSL Status: {{ 'Enabled' if enable_ssl else 'Disabled (HTTP Only)' }}
-      Frontend Status: {{ 'SUCCESS' if frontend_check.status == 200 else 'FAILED' }}
-      API Status: {{ 'SUCCESS' if not api_check.failed else 'FAILED' }}
-      Backend Servers: Multiple backend servers on port {{ app_port }}
-      Health Monitoring: Every {{ health_check_interval }} minutes
+      Website URL: {{ 'https://' + (domain_name | default(ansible_host)) if enable_ssl | default(false) else 'http://' + (ansible_host | string) }}
+      API Endpoints: {{ 'https://' + (domain_name | default(ansible_host)) if enable_ssl | default(false) else 'http://' + (ansible_host | string) }}/api/employees
+      Health Check: {{ 'https://' + (domain_name | default(ansible_host)) if enable_ssl | default(false) else 'http://' + (ansible_host | string) }}/health
+      SSL Status: {% if enable_ssl | default(false) %}Enabled (Let's Encrypt){% else %}Disabled (HTTP Only){% endif %}
+      Domain: {{ domain_name | default('N/A (using IP)') }}
+      Frontend Status: {{ 'SUCCESS' if frontend_check is defined and frontend_check.status == 200 else 'FAILED' }}
+      API Status: {{ 'SUCCESS' if api_check is defined and not api_check.failed else 'PENDING - Run backend pipeline' }}
+      Backend Servers: Multiple backend servers on port {{ app_port | default('8080') }}
+      Health Monitoring: Every {{ health_check_interval | default('30') }} minutes
       =======================================
